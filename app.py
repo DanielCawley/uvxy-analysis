@@ -318,12 +318,12 @@ def calculate_backwardation_strategy(uvxy_df, term_df):
             trade_return = ((exit_price / entry_price) - 1) * 100
             holding_days = idx - entry_idx
             trades.append({
-                'entry_date': entry_date,
-                'exit_date': row['Date'],
-                'entry_price': entry_price,
-                'exit_price': exit_price,
-                'return_pct': trade_return,
-                'holding_days': holding_days
+                'entry_date': entry_date.strftime('%Y-%m-%d'),
+                'exit_date': row['Date'].strftime('%Y-%m-%d'),
+                'entry_price': round(entry_price, 2),
+                'exit_price': round(exit_price, 2),
+                'return_pct': round(trade_return, 2),
+                'holding_days': int(holding_days)
             })
             in_trade = False
 
@@ -333,12 +333,12 @@ def calculate_backwardation_strategy(uvxy_df, term_df):
         trade_return = ((exit_price / entry_price) - 1) * 100
         holding_days = len(df) - entry_idx
         trades.append({
-            'entry_date': entry_date,
-            'exit_date': df['Date'].iloc[-1],
-            'entry_price': entry_price,
-            'exit_price': exit_price,
-            'return_pct': trade_return,
-            'holding_days': holding_days,
+            'entry_date': entry_date.strftime('%Y-%m-%d'),
+            'exit_date': df['Date'].iloc[-1].strftime('%Y-%m-%d'),
+            'entry_price': round(entry_price, 2),
+            'exit_price': round(exit_price, 2),
+            'return_pct': round(trade_return, 2),
+            'holding_days': int(holding_days),
             'open': True
         })
 
