@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>UVXY Analysis Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <style>
+        :root {
+            --bg-primary: #0d1117;
+            --bg-secondary: #161b22;
+            --bg-tertiary: #21262d;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+            --accent-blue: #58a6ff;
+            --accent-green: #3fb950;
+            --accent-red: #f85149;
+            --accent-yellow: #d29922;
+            --accent-purple: #a371f7;
+            --border-color: #30363d;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 40px 0;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        header p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 100px;
+            font-size: 1.2rem;
+            color: var(--text-secondary);
+        }
+
+        .loading-spinner {
+            border: 4px solid var(--bg-tertiary);
+            border-top: 4px solid var(--accent-blue);
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .dashboard {
+            display: none;
+        }
+
+        .section {
+            background: var(--bg-secondary);
+            border-radius: 12px;
+            padding: 24px;
+            margin-bottom: 24px;
+            border: 1px solid var(--border-color);
+        }
+
+        .section h2 {
+            font-size: 1.4rem;
+            margin-bottom: 20px;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+        }
+
+        .stat-card {
+            background: var(--bg-tertiary);
+            padding: 16px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+        }
+
+        .stat-card .label {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+        }
+
+        .stat-card .value {
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .stat-card .value.positive { color: var(--accent-green); }
+        .stat-card .value.negative { color: var(--accent-red); }
+        .stat-card .value.neutral { color: var(--accent-blue); }
+
+        .chart-container {
+            position: relative;
+            height: 400px;
+            margin-bottom: 20px;
+        }
+
+        .chart-container.small {
+            height: 250px;
+        }
+
+        .strategies-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 20px;
+        }
+
+        .strategy-card {
+            background: var(--bg-tertiary);
+            border-radius: 8px;
+            padding: 20px;
+            border: 1px solid var(--border-color);
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .strategy-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+        }
+
+        .strategy-card h3 {
+            font-size: 1.1rem;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+        }
+
+        .strategy-card .description {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        .strategy-card .metrics {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+        }
+
+        .strategy-card .metric {
+            text-align: center;
+        }
+
+        .strategy-card .metric-value {
+            font-size: 1.3rem;
+            font-weight: 600;
+        }
+
+        .strategy-card .metric-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+        }
+
+        .yearly-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 16px;
+        }
+
+        .yearly-table th,
+        .yearly-table td {
+            padding: 12px;
+            text-align: right;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .yearly-table th {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-align: right;
+        }
+
+        .yearly-table th:first-child,
+        .yearly-table td:first-child {
+            text-align: left;
+        }
+
+        .yearly-table tr:hover {
+            background: var(--bg-tertiary);
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .tab {
+            padding: 10px 20px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            color: var(--text-secondary);
+        }
+
+        .tab:hover {
+            background: var(--border-color);
+        }
+
+        .tab.active {
+            background: var(--accent-blue);
+            color: white;
+            border-color: var(--accent-blue);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        .two-col {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 24px;
+        }
+
+        .heatmap-container {
+            overflow-x: auto;
+        }
+
+        .heatmap {
+            border-collapse: collapse;
+            width: 100%;
+            min-width: 600px;
+        }
+
+        .heatmap th, .heatmap td {
+            padding: 8px 12px;
+            text-align: center;
+            border: 1px solid var(--border-color);
+            font-size: 0.85rem;
+        }
+
+        .heatmap th {
+            background: var(--bg-tertiary);
+            color: var(--text-secondary);
+        }
+
+        .heatmap td {
+            font-weight: 500;
+        }
+
+        footer {
+            text-align: center;
+            padding: 40px 0;
+            border-top: 1px solid var(--border-color);
+            margin-top: 40px;
+            color: var(--text-secondary);
+        }
+
+        .error {
+            background: rgba(248, 81, 73, 0.1);
+            border: 1px solid var(--accent-red);
+            padding: 20px;
+            border-radius: 8px;
+            color: var(--accent-red);
+            text-align: center;
+        }
+
+        @media (max-width: 768px) {
+            header h1 {
+                font-size: 1.8rem;
+            }
+
+            .stats-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .strategies-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .two-col {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>UVXY Analysis Dashboard</h1>
+            <p>Comprehensive volatility ETF analysis | Data from Yahoo Finance (2021-2026)</p>
+        </header>
+
+        <div id="loading" class="loading">
+            <div class="loading-spinner"></div>
+            <p>Fetching and analyzing UVXY data...</p>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+
+        <div id="dashboard" class="dashboard">
+            <!-- Key Statistics Overview -->
+            <section class="section">
+                <h2>Key Statistics Overview</h2>
+                <div class="stats-grid" id="key-stats"></div>
+            </section>
+
+            <!-- Price Chart -->
+            <section class="section">
+                <h2>Price Chart</h2>
+                <div class="tabs">
+                    <button class="tab active" data-chart="price">Price & Moving Averages</button>
+                    <button class="tab" data-chart="volume">Volume</button>
+                    <button class="tab" data-chart="rsi">RSI</button>
+                </div>
+                <div id="price-tab" class="tab-content active">
+                    <div class="chart-container">
+                        <canvas id="priceChart"></canvas>
+                    </div>
+                </div>
+                <div id="volume-tab" class="tab-content">
+                    <div class="chart-container">
+                        <canvas id="volumeChart"></canvas>
+                    </div>
+                </div>
+                <div id="rsi-tab" class="tab-content">
+                    <div class="chart-container">
+                        <canvas id="rsiChart"></canvas>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Returns Analysis -->
+            <section class="section">
+                <h2>Returns Analysis</h2>
+                <div class="two-col">
+                    <div>
+                        <h3 style="margin-bottom: 16px; color: var(--text-secondary);">Daily Returns Distribution</h3>
+                        <div class="chart-container small">
+                            <canvas id="returnsChart"></canvas>
+                        </div>
+                    </div>
+                    <div>
+                        <h3 style="margin-bottom: 16px; color: var(--text-secondary);">Returns Statistics</h3>
+                        <div class="stats-grid" id="returns-stats"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Monthly Returns Heatmap -->
+            <section class="section">
+                <h2>Monthly Returns Heatmap (%)</h2>
+                <div class="heatmap-container">
+                    <table class="heatmap" id="monthly-heatmap"></table>
+                </div>
+            </section>
+
+            <!-- Yearly Performance -->
+            <section class="section">
+                <h2>Yearly Performance</h2>
+                <table class="yearly-table" id="yearly-table">
+                    <thead>
+                        <tr>
+                            <th>Year</th>
+                            <th>Return (%)</th>
+                            <th>High</th>
+                            <th>Low</th>
+                            <th>Avg Volume</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </section>
+
+            <!-- Volatility & Drawdown -->
+            <section class="section">
+                <h2>Volatility & Drawdown Analysis</h2>
+                <div class="two-col">
+                    <div>
+                        <h3 style="margin-bottom: 16px; color: var(--text-secondary);">Volatility Metrics</h3>
+                        <div class="stats-grid" id="volatility-stats"></div>
+                    </div>
+                    <div>
+                        <h3 style="margin-bottom: 16px; color: var(--text-secondary);">Drawdown Metrics</h3>
+                        <div class="stats-grid" id="drawdown-stats"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Trading Strategies -->
+            <section class="section">
+                <h2>Trading Strategies Performance</h2>
+                <p style="color: var(--text-secondary); margin-bottom: 20px;">
+                    Backtested strategies on UVXY data. Returns are cumulative daily percentage returns.
+                </p>
+                <div class="strategies-grid" id="strategies"></div>
+            </section>
+        </div>
+
+        <footer>
+            <p>Data sourced from Yahoo Finance | Analysis for educational purposes only</p>
+            <p style="margin-top: 8px;">UVXY is a leveraged volatility ETF and carries significant risk</p>
+        </footer>
+    </div>
+
+    <script>
+        let charts = {};
+
+        async function fetchData() {
+            try {
+                const response = await fetch('/api/data');
+                const data = await response.json();
+
+                if (!data.success) {
+                    throw new Error(data.error || 'Failed to fetch data');
+                }
+
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('dashboard').style.display = 'block';
+
+                renderDashboard(data);
+            } catch (error) {
+                document.getElementById('loading').style.display = 'none';
+                document.getElementById('error').style.display = 'block';
+                document.getElementById('error').textContent = `Error: ${error.message}`;
+            }
+        }
+
+        function renderDashboard(data) {
+            renderKeyStats(data.statistics);
+            renderCharts(data.charts);
+            renderReturnsStats(data.statistics.returns);
+            renderMonthlyHeatmap(data.charts.monthly);
+            renderYearlyTable(data.statistics.yearly);
+            renderVolatilityStats(data.statistics.volatility);
+            renderDrawdownStats(data.statistics.drawdown);
+            renderStrategies(data.strategies);
+        }
+
+        function renderKeyStats(stats) {
+            const container = document.getElementById('key-stats');
+            const basic = stats.basic;
+            const returns = stats.returns;
+
+            container.innerHTML = `
+                <div class="stat-card">
+                    <div class="label">Current Price</div>
+                    <div class="value neutral">$${basic.current_price}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Total Return</div>
+                    <div class="value ${returns.total_return_pct >= 0 ? 'positive' : 'negative'}">
+                        ${returns.total_return_pct >= 0 ? '+' : ''}${returns.total_return_pct}%
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">All-Time High</div>
+                    <div class="value neutral">$${basic.all_time_high}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">All-Time Low</div>
+                    <div class="value neutral">$${basic.all_time_low}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Win Rate (Daily)</div>
+                    <div class="value ${returns.win_rate >= 50 ? 'positive' : 'negative'}">${returns.win_rate}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Trading Days</div>
+                    <div class="value neutral">${basic.total_trading_days}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Avg Daily Return</div>
+                    <div class="value ${returns.avg_daily_return >= 0 ? 'positive' : 'negative'}">
+                        ${returns.avg_daily_return >= 0 ? '+' : ''}${returns.avg_daily_return}%
+                    </div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Date Range</div>
+                    <div class="value neutral" style="font-size: 0.9rem;">${basic.date_range}</div>
+                </div>
+            `;
+        }
+
+        function renderCharts(chartData) {
+            // Price Chart
+            const priceCtx = document.getElementById('priceChart').getContext('2d');
+            charts.price = new Chart(priceCtx, {
+                type: 'line',
+                data: {
+                    labels: chartData.price.dates,
+                    datasets: [
+                        {
+                            label: 'UVXY Close',
+                            data: chartData.price.close,
+                            borderColor: '#58a6ff',
+                            backgroundColor: 'rgba(88, 166, 255, 0.1)',
+                            fill: true,
+                            tension: 0.1,
+                            pointRadius: 0,
+                            borderWidth: 2
+                        },
+                        {
+                            label: '10-Day SMA',
+                            data: chartData.price.sma10,
+                            borderColor: '#3fb950',
+                            borderWidth: 1,
+                            pointRadius: 0,
+                            fill: false
+                        },
+                        {
+                            label: '50-Day SMA',
+                            data: chartData.price.sma50,
+                            borderColor: '#f85149',
+                            borderWidth: 1,
+                            pointRadius: 0,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        intersect: false,
+                        mode: 'index'
+                    },
+                    plugins: {
+                        legend: {
+                            labels: { color: '#8b949e' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#8b949e', maxTicksLimit: 12 },
+                            grid: { color: '#30363d' }
+                        },
+                        y: {
+                            ticks: { color: '#8b949e' },
+                            grid: { color: '#30363d' }
+                        }
+                    }
+                }
+            });
+
+            // Volume Chart
+            const volumeCtx = document.getElementById('volumeChart').getContext('2d');
+            charts.volume = new Chart(volumeCtx, {
+                type: 'bar',
+                data: {
+                    labels: chartData.price.dates,
+                    datasets: [{
+                        label: 'Volume',
+                        data: chartData.price.volume,
+                        backgroundColor: 'rgba(88, 166, 255, 0.6)',
+                        borderColor: '#58a6ff',
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#8b949e' }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#8b949e', maxTicksLimit: 12 },
+                            grid: { color: '#30363d' }
+                        },
+                        y: {
+                            ticks: { color: '#8b949e' },
+                            grid: { color: '#30363d' }
+                        }
+                    }
+                }
+            });
+
+            // RSI Chart
+            const rsiCtx = document.getElementById('rsiChart').getContext('2d');
+            charts.rsi = new Chart(rsiCtx, {
+                type: 'line',
+                data: {
+                    labels: chartData.price.dates,
+                    datasets: [{
+                        label: 'RSI (14)',
+                        data: chartData.price.rsi,
+                        borderColor: '#a371f7',
+                        borderWidth: 2,
+                        pointRadius: 0,
+                        fill: false
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            labels: { color: '#8b949e' }
+                        },
+                        annotation: {
+                            annotations: {
+                                line1: {
+                                    type: 'line',
+                                    yMin: 70,
+                                    yMax: 70,
+                                    borderColor: '#f85149',
+                                    borderWidth: 1,
+                                    borderDash: [5, 5]
+                                },
+                                line2: {
+                                    type: 'line',
+                                    yMin: 30,
+                                    yMax: 30,
+                                    borderColor: '#3fb950',
+                                    borderWidth: 1,
+                                    borderDash: [5, 5]
+                                }
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#8b949e', maxTicksLimit: 12 },
+                            grid: { color: '#30363d' }
+                        },
+                        y: {
+                            min: 0,
+                            max: 100,
+                            ticks: { color: '#8b949e' },
+                            grid: { color: '#30363d' }
+                        }
+                    }
+                }
+            });
+
+            // Returns Histogram
+            const returnsCtx = document.getElementById('returnsChart').getContext('2d');
+            const bins = createHistogramBins(chartData.returns, 30);
+            charts.returns = new Chart(returnsCtx, {
+                type: 'bar',
+                data: {
+                    labels: bins.labels,
+                    datasets: [{
+                        label: 'Frequency',
+                        data: bins.counts,
+                        backgroundColor: bins.labels.map(l => parseFloat(l) >= 0 ? 'rgba(63, 185, 80, 0.7)' : 'rgba(248, 81, 73, 0.7)'),
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    },
+                    scales: {
+                        x: {
+                            ticks: { color: '#8b949e', maxTicksLimit: 10 },
+                            grid: { color: '#30363d' },
+                            title: {
+                                display: true,
+                                text: 'Daily Return (%)',
+                                color: '#8b949e'
+                            }
+                        },
+                        y: {
+                            ticks: { color: '#8b949e' },
+                            grid: { color: '#30363d' },
+                            title: {
+                                display: true,
+                                text: 'Frequency',
+                                color: '#8b949e'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function createHistogramBins(data, numBins) {
+            const min = Math.min(...data);
+            const max = Math.max(...data);
+            const binWidth = (max - min) / numBins;
+
+            const counts = new Array(numBins).fill(0);
+            const labels = [];
+
+            for (let i = 0; i < numBins; i++) {
+                const binStart = min + i * binWidth;
+                labels.push(binStart.toFixed(1));
+            }
+
+            data.forEach(value => {
+                let binIndex = Math.floor((value - min) / binWidth);
+                if (binIndex >= numBins) binIndex = numBins - 1;
+                if (binIndex < 0) binIndex = 0;
+                counts[binIndex]++;
+            });
+
+            return { labels, counts };
+        }
+
+        function renderReturnsStats(returns) {
+            const container = document.getElementById('returns-stats');
+            container.innerHTML = `
+                <div class="stat-card">
+                    <div class="label">Max Daily Gain</div>
+                    <div class="value positive">+${returns.max_daily_gain}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Max Daily Loss</div>
+                    <div class="value negative">${returns.max_daily_loss}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Positive Days</div>
+                    <div class="value positive">${returns.positive_days}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Negative Days</div>
+                    <div class="value negative">${returns.negative_days}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Avg Gain (Up Days)</div>
+                    <div class="value positive">+${returns.avg_gain_on_up_days}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Avg Loss (Down Days)</div>
+                    <div class="value negative">${returns.avg_loss_on_down_days}%</div>
+                </div>
+            `;
+        }
+
+        function renderMonthlyHeatmap(monthly) {
+            const container = document.getElementById('monthly-heatmap');
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const years = Object.keys(monthly).sort();
+
+            let html = '<thead><tr><th>Year</th>';
+            months.forEach(m => html += `<th>${m}</th>`);
+            html += '<th>Total</th></tr></thead><tbody>';
+
+            years.forEach(year => {
+                html += `<tr><td><strong>${year}</strong></td>`;
+                let yearTotal = 0;
+                for (let m = 1; m <= 12; m++) {
+                    const value = monthly[year][m] || 0;
+                    yearTotal += value;
+                    const color = getHeatmapColor(value);
+                    html += `<td style="background-color: ${color}; color: ${Math.abs(value) > 15 ? 'white' : 'inherit'}">${value.toFixed(1)}</td>`;
+                }
+                const totalColor = getHeatmapColor(yearTotal / 5);
+                html += `<td style="background-color: ${totalColor}; font-weight: bold;">${yearTotal.toFixed(1)}</td>`;
+                html += '</tr>';
+            });
+
+            html += '</tbody>';
+            container.innerHTML = html;
+        }
+
+        function getHeatmapColor(value) {
+            if (value > 20) return 'rgba(63, 185, 80, 0.8)';
+            if (value > 10) return 'rgba(63, 185, 80, 0.6)';
+            if (value > 5) return 'rgba(63, 185, 80, 0.4)';
+            if (value > 0) return 'rgba(63, 185, 80, 0.2)';
+            if (value > -5) return 'rgba(248, 81, 73, 0.2)';
+            if (value > -10) return 'rgba(248, 81, 73, 0.4)';
+            if (value > -20) return 'rgba(248, 81, 73, 0.6)';
+            return 'rgba(248, 81, 73, 0.8)';
+        }
+
+        function renderYearlyTable(yearly) {
+            const tbody = document.querySelector('#yearly-table tbody');
+            tbody.innerHTML = yearly.map(y => `
+                <tr>
+                    <td><strong>${y.year}</strong></td>
+                    <td class="${y.return >= 0 ? 'positive' : 'negative'}" style="color: ${y.return >= 0 ? 'var(--accent-green)' : 'var(--accent-red)'}">
+                        ${y.return >= 0 ? '+' : ''}${y.return}%
+                    </td>
+                    <td>$${y.high}</td>
+                    <td>$${y.low}</td>
+                    <td>${(y.avg_volume / 1000000).toFixed(2)}M</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderVolatilityStats(vol) {
+            const container = document.getElementById('volatility-stats');
+            container.innerHTML = `
+                <div class="stat-card">
+                    <div class="label">Daily Volatility</div>
+                    <div class="value neutral">${vol.daily_volatility}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Annualized Volatility</div>
+                    <div class="value neutral">${vol.annualized_volatility}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Avg True Range</div>
+                    <div class="value neutral">$${vol.avg_true_range}</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Max Intraday Range</div>
+                    <div class="value neutral">$${vol.max_intraday_range}</div>
+                </div>
+            `;
+        }
+
+        function renderDrawdownStats(dd) {
+            const container = document.getElementById('drawdown-stats');
+            container.innerHTML = `
+                <div class="stat-card">
+                    <div class="label">Max Drawdown</div>
+                    <div class="value negative">${dd.max_drawdown}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Average Drawdown</div>
+                    <div class="value negative">${dd.avg_drawdown}%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="label">Current Drawdown</div>
+                    <div class="value negative">${dd.current_drawdown}%</div>
+                </div>
+            `;
+        }
+
+        function renderStrategies(strategies) {
+            const container = document.getElementById('strategies');
+            const strategyOrder = ['short_only', 'ma_crossover', 'momentum', 'volume_spike', 'rsi', 'bollinger', 'buy_hold'];
+
+            container.innerHTML = strategyOrder.map(key => {
+                const s = strategies[key];
+                if (!s) return '';
+                return `
+                    <div class="strategy-card">
+                        <h3>${s.name}</h3>
+                        <p class="description">${s.description}</p>
+                        <div class="metrics">
+                            <div class="metric">
+                                <div class="metric-value ${s.total_return >= 0 ? 'positive' : 'negative'}">
+                                    ${s.total_return >= 0 ? '+' : ''}${s.total_return}%
+                                </div>
+                                <div class="metric-label">Total Return</div>
+                            </div>
+                            <div class="metric">
+                                <div class="metric-value neutral">${s.win_rate}%</div>
+                                <div class="metric-label">Win Rate</div>
+                            </div>
+                            ${s.sharpe_ratio !== undefined ? `
+                            <div class="metric">
+                                <div class="metric-value ${s.sharpe_ratio >= 0 ? 'positive' : 'negative'}">${s.sharpe_ratio}</div>
+                                <div class="metric-label">Sharpe Ratio</div>
+                            </div>
+                            ` : `
+                            <div class="metric">
+                                <div class="metric-value neutral">${s.times_triggered}</div>
+                                <div class="metric-label">Signals</div>
+                            </div>
+                            `}
+                            <div class="metric">
+                                <div class="metric-value neutral">${s.avg_daily_return}%</div>
+                                <div class="metric-label">Avg Daily</div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        // Tab switching
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                const chartType = this.dataset.chart;
+
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+                this.classList.add('active');
+                document.getElementById(`${chartType}-tab`).classList.add('active');
+            });
+        });
+
+        // Initialize
+        fetchData();
+    </script>
+</body>
+</html>
