@@ -869,11 +869,74 @@
 
         function renderStrategies(strategies) {
             const container = document.getElementById('strategies');
-            const strategyOrder = ['short_only', 'ma_crossover', 'momentum', 'volume_spike', 'rsi', 'bollinger', 'buy_hold'];
+            const strategyOrder = ['backwardation', 'short_only', 'ma_crossover', 'momentum', 'volume_spike', 'rsi', 'bollinger', 'buy_hold'];
 
             container.innerHTML = strategyOrder.map(key => {
                 const s = strategies[key];
                 if (!s) return '';
+
+                // Special rendering for backwardation strategy
+                if (key === 'backwardation') {
+                    return `
+                        <div class="strategy-card" style="grid-column: span 2; border-color: var(--accent-purple);">
+                            <h3 style="color: var(--accent-purple);">${s.name}</h3>
+                            <p class="description">${s.description}</p>
+                            <div class="metrics" style="grid-template-columns: repeat(4, 1fr);">
+                                <div class="metric">
+                                    <div class="metric-value ${s.total_return >= 0 ? 'positive' : 'negative'}">
+                                        ${s.total_return >= 0 ? '+' : ''}${s.total_return}%
+                                    </div>
+                                    <div class="metric-label">Total Return</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value neutral">${s.num_trades}</div>
+                                    <div class="metric-label">Total Trades</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value ${s.win_rate >= 50 ? 'positive' : 'negative'}">${s.win_rate}%</div>
+                                    <div class="metric-label">Win Rate</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value neutral">${s.avg_holding_days} days</div>
+                                    <div class="metric-label">Avg Hold</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value positive">${s.winning_trades}</div>
+                                    <div class="metric-label">Winning</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value negative">${s.losing_trades}</div>
+                                    <div class="metric-label">Losing</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value positive">+${s.avg_win}%</div>
+                                    <div class="metric-label">Avg Win</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value negative">${s.avg_loss}%</div>
+                                    <div class="metric-label">Avg Loss</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value positive">+${s.best_trade}%</div>
+                                    <div class="metric-label">Best Trade</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value negative">${s.worst_trade}%</div>
+                                    <div class="metric-label">Worst Trade</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value neutral">${s.backwardation_days}</div>
+                                    <div class="metric-label">Backwardation Days</div>
+                                </div>
+                                <div class="metric">
+                                    <div class="metric-value neutral">${s.backwardation_pct}%</div>
+                                    <div class="metric-label">Time in Backwardation</div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                }
+
                 return `
                     <div class="strategy-card">
                         <h3>${s.name}</h3>

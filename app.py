@@ -13,11 +13,9 @@ import time
 
 app = Flask(__name__)
 
-def fetch_uvxy_data():
-    """Fetch UVXY data from Yahoo Finance using direct API (2021-2026)"""
-    # Use Yahoo Finance's query1 API directly
-    symbol = "UVXY"
-    start_timestamp = int(datetime(2021, 1, 1).timestamp())
+def fetch_yahoo_data(symbol, start_year=2021):
+    """Fetch data from Yahoo Finance using direct API"""
+    start_timestamp = int(datetime(start_year, 1, 1).timestamp())
     end_timestamp = int(datetime(2026, 1, 16).timestamp())
 
     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}"
@@ -37,7 +35,7 @@ def fetch_uvxy_data():
     data = response.json()
 
     if "chart" not in data or "result" not in data["chart"] or not data["chart"]["result"]:
-        raise Exception("Failed to fetch data from Yahoo Finance")
+        raise Exception(f"Failed to fetch data for {symbol}")
 
     result = data["chart"]["result"][0]
     timestamps = result["timestamp"]
@@ -52,11 +50,30 @@ def fetch_uvxy_data():
         "Volume": quote["volume"]
     })
 
-    # Remove any rows with NaN values
     df = df.dropna()
     df = df.reset_index(drop=True)
-
     return df
+
+def fetch_uvxy_data():
+    """Fetch UVXY data from Yahoo Finance using direct API (2021-2026)"""
+    return fetch_yahoo_data("UVXY")
+
+def fetch_vix_term_structure():
+    """Fetch VIX and VIX3M data to determine contango/backwardation state"""
+    vix_df = fetch_yahoo_data("^VIX")
+    vix3m_df = fetch_yahoo_data("^VIX3M")
+
+    # Rename columns for clarity
+    vix_df = vix_df[['Date', 'Close']].rename(columns={'Close': 'VIX'})
+    vix3m_df = vix3m_df[['Date', 'Close']].rename(columns={'Close': 'VIX3M'})
+
+    # Merge on date
+    term_df = pd.merge(vix_df, vix3m_df, on='Date', how='inner')
+
+    # Backwardation occurs when VIX > VIX3M (inverted term structure)
+    term_df['Backwardation'] = term_df['VIX'] > term_df['VIX3M']
+
+    return term_df
 
 def calculate_statistics(df):
     """Calculate comprehensive statistics on UVXY data"""
@@ -266,6 +283,119 @@ def calculate_strategies(df):
 
     return strategies
 
+def calculate_backwardation_strategy(uvxy_df, term_df):
+    """
+    Calculate backwardation strategy: Buy UVXY on backwardation entry, sell on exit.
+    Backwardation = VIX > VIX3M (inverted term structure, typically during market stress)
+    """
+    # Merge UVXY data with term structure
+    df = pd.merge(uvxy_df.copy(), term_df[['Date', 'VIX', 'VIX3M', 'Backwardation']], on='Date', how='inner')
+    df = df.sort_values('Date').reset_index(drop=True)
+
+    # Calculate daily returns
+    df['Daily_Return'] = df['Close'].pct_change() * 100
+
+    # Detect backwardation entry/exit signals
+    df['Prev_Backwardation'] = df['Backwardation'].shift(1)
+    df['Entry_Signal'] = (df['Backwardation'] == True) & (df['Prev_Backwardation'] == False)
+    df['Exit_Signal'] = (df['Backwardation'] == False) & (df['Prev_Backwardation'] == True)
+
+    # Track trades
+    trades = []
+    in_trade = False
+    entry_price = 0
+    entry_date = None
+    entry_idx = 0
+
+    for idx, row in df.iterrows():
+        if row['Entry_Signal'] and not in_trade:
+            in_trade = True
+            entry_price = row['Close']
+            entry_date = row['Date']
+            entry_idx = idx
+        elif row['Exit_Signal'] and in_trade:
+            exit_price = row['Close']
+            trade_return = ((exit_price / entry_price) - 1) * 100
+            holding_days = idx - entry_idx
+            trades.append({
+                'entry_date': entry_date,
+                'exit_date': row['Date'],
+                'entry_price': entry_price,
+                'exit_price': exit_price,
+                'return_pct': trade_return,
+                'holding_days': holding_days
+            })
+            in_trade = False
+
+    # If still in a trade at end, close it
+    if in_trade:
+        exit_price = df['Close'].iloc[-1]
+        trade_return = ((exit_price / entry_price) - 1) * 100
+        holding_days = len(df) - entry_idx
+        trades.append({
+            'entry_date': entry_date,
+            'exit_date': df['Date'].iloc[-1],
+            'entry_price': entry_price,
+            'exit_price': exit_price,
+            'return_pct': trade_return,
+            'holding_days': holding_days,
+            'open': True
+        })
+
+    # Calculate statistics
+    if trades:
+        trades_df = pd.DataFrame(trades)
+        total_return = trades_df['return_pct'].sum()
+        avg_trade_return = trades_df['return_pct'].mean()
+        win_rate = (trades_df['return_pct'] > 0).sum() / len(trades_df) * 100
+        avg_holding_days = trades_df['holding_days'].mean()
+        num_trades = len(trades_df)
+        winning_trades = (trades_df['return_pct'] > 0).sum()
+        losing_trades = (trades_df['return_pct'] <= 0).sum()
+        avg_win = trades_df[trades_df['return_pct'] > 0]['return_pct'].mean() if winning_trades > 0 else 0
+        avg_loss = trades_df[trades_df['return_pct'] <= 0]['return_pct'].mean() if losing_trades > 0 else 0
+        best_trade = trades_df['return_pct'].max()
+        worst_trade = trades_df['return_pct'].min()
+    else:
+        total_return = 0
+        avg_trade_return = 0
+        win_rate = 0
+        avg_holding_days = 0
+        num_trades = 0
+        winning_trades = 0
+        losing_trades = 0
+        avg_win = 0
+        avg_loss = 0
+        best_trade = 0
+        worst_trade = 0
+
+    # Calculate backwardation statistics
+    backwardation_days = df['Backwardation'].sum()
+    total_days = len(df)
+    backwardation_pct = (backwardation_days / total_days) * 100
+
+    strategy = {
+        'name': 'Backwardation Strategy',
+        'description': 'Buy UVXY when VIX > VIX3M (backwardation), sell when VIX < VIX3M (contango)',
+        'total_return': round(total_return, 2),
+        'avg_trade_return': round(avg_trade_return, 2),
+        'win_rate': round(win_rate, 2),
+        'num_trades': num_trades,
+        'winning_trades': int(winning_trades),
+        'losing_trades': int(losing_trades),
+        'avg_holding_days': round(avg_holding_days, 1),
+        'avg_win': round(avg_win, 2),
+        'avg_loss': round(avg_loss, 2),
+        'best_trade': round(best_trade, 2),
+        'worst_trade': round(worst_trade, 2),
+        'backwardation_days': int(backwardation_days),
+        'total_days': total_days,
+        'backwardation_pct': round(backwardation_pct, 2),
+        'trades': trades[-10:] if trades else []  # Last 10 trades for display
+    }
+
+    return strategy
+
 def get_chart_data(df):
     """Prepare data for charts"""
     # Price chart data
@@ -319,6 +449,15 @@ def get_data():
         statistics = calculate_statistics(df.copy())
         strategies = calculate_strategies(df.copy())
         chart_data = get_chart_data(df.copy())
+
+        # Fetch VIX term structure and calculate backwardation strategy
+        try:
+            term_df = fetch_vix_term_structure()
+            backwardation_strategy = calculate_backwardation_strategy(df.copy(), term_df)
+            strategies['backwardation'] = backwardation_strategy
+        except Exception as e:
+            # If VIX data fails, continue without backwardation strategy
+            print(f"Warning: Could not fetch VIX term structure: {e}")
 
         return jsonify({
             'success': True,
