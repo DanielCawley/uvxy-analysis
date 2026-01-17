@@ -283,10 +283,12 @@ def calculate_strategies(df):
 
     return strategies
 
-def calculate_backwardation_strategy(uvxy_df, term_df):
+def calculate_backwardation_strategy(uvxy_df, term_df, trailing_stop_pct=20):
     """
-    Calculate backwardation strategy: Buy UVXY on backwardation entry, sell on exit.
-    Backwardation = VIX > VIX3M (inverted term structure, typically during market stress)
+    Calculate backwardation strategy with trailing stop loss.
+    - Buy UVXY when VIX > VIX3M (backwardation entry)
+    - Exit when either: trailing stop loss hit OR backwardation ends
+    - Trailing stop: sell if price drops X% from highest price since entry
     """
     # Merge UVXY data with term structure
     df = pd.merge(uvxy_df.copy(), term_df[['Date', 'VIX', 'VIX3M', 'Backwardation']], on='Date', how='inner')
@@ -295,37 +297,56 @@ def calculate_backwardation_strategy(uvxy_df, term_df):
     # Calculate daily returns
     df['Daily_Return'] = df['Close'].pct_change() * 100
 
-    # Detect backwardation entry/exit signals
+    # Detect backwardation entry signals
     df['Prev_Backwardation'] = df['Backwardation'].shift(1)
     df['Entry_Signal'] = (df['Backwardation'] == True) & (df['Prev_Backwardation'] == False)
-    df['Exit_Signal'] = (df['Backwardation'] == False) & (df['Prev_Backwardation'] == True)
 
-    # Track trades
+    # Track trades with trailing stop
     trades = []
     in_trade = False
     entry_price = 0
     entry_date = None
     entry_idx = 0
+    highest_price = 0  # Track highest price since entry for trailing stop
 
     for idx, row in df.iterrows():
         if row['Entry_Signal'] and not in_trade:
+            # Enter trade
             in_trade = True
             entry_price = row['Close']
             entry_date = row['Date']
             entry_idx = idx
-        elif row['Exit_Signal'] and in_trade:
-            exit_price = row['Close']
-            trade_return = ((exit_price / entry_price) - 1) * 100
-            holding_days = idx - entry_idx
-            trades.append({
-                'entry_date': entry_date.strftime('%Y-%m-%d'),
-                'exit_date': row['Date'].strftime('%Y-%m-%d'),
-                'entry_price': round(entry_price, 2),
-                'exit_price': round(exit_price, 2),
-                'return_pct': round(trade_return, 2),
-                'holding_days': int(holding_days)
-            })
-            in_trade = False
+            highest_price = entry_price
+        elif in_trade:
+            current_price = row['Close']
+
+            # Update highest price (for trailing stop calculation)
+            if current_price > highest_price:
+                highest_price = current_price
+
+            # Calculate trailing stop level
+            stop_level = highest_price * (1 - trailing_stop_pct / 100)
+
+            # Check exit conditions: trailing stop hit OR backwardation ended
+            stop_hit = current_price <= stop_level
+            backwardation_ended = not row['Backwardation']
+
+            if stop_hit or backwardation_ended:
+                exit_price = current_price
+                trade_return = ((exit_price / entry_price) - 1) * 100
+                holding_days = idx - entry_idx
+                exit_reason = 'stop_loss' if stop_hit else 'backwardation_exit'
+                trades.append({
+                    'entry_date': entry_date.strftime('%Y-%m-%d'),
+                    'exit_date': row['Date'].strftime('%Y-%m-%d'),
+                    'entry_price': round(entry_price, 2),
+                    'exit_price': round(exit_price, 2),
+                    'return_pct': round(trade_return, 2),
+                    'holding_days': int(holding_days),
+                    'highest_price': round(highest_price, 2),
+                    'exit_reason': exit_reason
+                })
+                in_trade = False
 
     # If still in a trade at end, close it
     if in_trade:
@@ -339,6 +360,8 @@ def calculate_backwardation_strategy(uvxy_df, term_df):
             'exit_price': round(exit_price, 2),
             'return_pct': round(trade_return, 2),
             'holding_days': int(holding_days),
+            'highest_price': round(highest_price, 2),
+            'exit_reason': 'open',
             'open': True
         })
 
@@ -356,6 +379,9 @@ def calculate_backwardation_strategy(uvxy_df, term_df):
         avg_loss = trades_df[trades_df['return_pct'] <= 0]['return_pct'].mean() if losing_trades > 0 else 0
         best_trade = trades_df['return_pct'].max()
         worst_trade = trades_df['return_pct'].min()
+        # Count exit reasons
+        stop_loss_exits = (trades_df['exit_reason'] == 'stop_loss').sum()
+        backwardation_exits = (trades_df['exit_reason'] == 'backwardation_exit').sum()
     else:
         total_return = 0
         avg_trade_return = 0
@@ -368,6 +394,8 @@ def calculate_backwardation_strategy(uvxy_df, term_df):
         avg_loss = 0
         best_trade = 0
         worst_trade = 0
+        stop_loss_exits = 0
+        backwardation_exits = 0
 
     # Calculate backwardation statistics
     backwardation_days = df['Backwardation'].sum()
@@ -375,22 +403,25 @@ def calculate_backwardation_strategy(uvxy_df, term_df):
     backwardation_pct = (backwardation_days / total_days) * 100
 
     strategy = {
-        'name': 'Backwardation Strategy',
-        'description': 'Buy UVXY when VIX > VIX3M (backwardation), sell when VIX < VIX3M (contango)',
-        'total_return': round(total_return, 2),
-        'avg_trade_return': round(avg_trade_return, 2),
-        'win_rate': round(win_rate, 2),
-        'num_trades': num_trades,
+        'name': 'Backwardation + Trailing Stop',
+        'description': f'Buy UVXY on backwardation entry, exit on {trailing_stop_pct}% trailing stop or backwardation end',
+        'total_return': float(round(total_return, 2)),
+        'avg_trade_return': float(round(avg_trade_return, 2)),
+        'win_rate': float(round(win_rate, 2)),
+        'num_trades': int(num_trades),
         'winning_trades': int(winning_trades),
         'losing_trades': int(losing_trades),
-        'avg_holding_days': round(avg_holding_days, 1),
-        'avg_win': round(avg_win, 2),
-        'avg_loss': round(avg_loss, 2),
-        'best_trade': round(best_trade, 2),
-        'worst_trade': round(worst_trade, 2),
+        'avg_holding_days': float(round(avg_holding_days, 1)),
+        'avg_win': float(round(avg_win, 2)),
+        'avg_loss': float(round(avg_loss, 2)),
+        'best_trade': float(round(best_trade, 2)),
+        'worst_trade': float(round(worst_trade, 2)),
+        'stop_loss_exits': int(stop_loss_exits),
+        'backwardation_exits': int(backwardation_exits),
+        'trailing_stop_pct': int(trailing_stop_pct),
         'backwardation_days': int(backwardation_days),
-        'total_days': total_days,
-        'backwardation_pct': round(backwardation_pct, 2),
+        'total_days': int(total_days),
+        'backwardation_pct': float(round(backwardation_pct, 2)),
         'trades': trades[-10:] if trades else []  # Last 10 trades for display
     }
 
